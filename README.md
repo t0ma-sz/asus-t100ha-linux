@@ -106,4 +106,4 @@ Then after compiling
 'makepkg -i'
 
 
-## 8. Reboot and choose t100ha-kernel on grub. Login and launch GUI by startx command.
+## 8. Reboot and choose t100ha-kernel on grub. Login and launch GUI by `startx` command.
