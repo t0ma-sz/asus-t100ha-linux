@@ -1,0 +1,116 @@
+From fcd7f7a1d3c5a420e9580548dd98b97b3093a4f7 Mon Sep 17 00:00:00 2001
+From: Takashi Iwai <tiwai@suse.de>
+Date: Fri, 24 Feb 2017 14:53:29 +0100
+Subject: [PATCH 31/44] mfd: intel-soc-pmic: Allow module build
+
+intel-soc-pmic driver can run as a module, too, when user carefully
+loads it in the right order at the right moment.  No need to restrict
+to be only for built-in.
+
+Along with this change, pwm and gpiod lookup add/remove calls have to
+be exported.
+
+Also, the dedicated Kconfig entry for intel_soc_pmic_bxtwc driver was
+created since the bxtwc driver has its own platform_driver module
+entry, and it's basically independent from intel-soc-pmic.
+
+Signed-off-by: Takashi Iwai <tiwai@suse.de>
+---
+ drivers/gpio/gpiolib.c |  2 ++
+ drivers/mfd/Kconfig    | 15 +++++++++++++--
+ drivers/mfd/Makefile   |  2 +-
+ drivers/pwm/core.c     |  2 ++
+ 4 files changed, 18 insertions(+), 3 deletions(-)
+
+diff --git a/drivers/gpio/gpiolib.c b/drivers/gpio/gpiolib.c
+index 8b4d721d6d63..f21a61ec044c 100644
+--- a/drivers/gpio/gpiolib.c
++++ b/drivers/gpio/gpiolib.c
+@@ -3015,6 +3015,7 @@ void gpiod_add_lookup_table(struct gpiod_lookup_table *table)
+ 
+ 	mutex_unlock(&gpio_lookup_lock);
+ }
++EXPORT_SYMBOL_GPL(gpiod_add_lookup_table);
+ 
+ /**
+  * gpiod_remove_lookup_table() - unregister GPIO device consumers
+@@ -3028,6 +3029,7 @@ void gpiod_remove_lookup_table(struct gpiod_lookup_table *table)
+ 
+ 	mutex_unlock(&gpio_lookup_lock);
+ }
++EXPORT_SYMBOL_GPL(gpiod_remove_lookup_table);
+ 
+ static struct gpiod_lookup_table *gpiod_find_lookup_table(struct device *dev)
+ {
+diff --git a/drivers/mfd/Kconfig b/drivers/mfd/Kconfig
+index 78d106873989..7e50503450f4 100644
+--- a/drivers/mfd/Kconfig
++++ b/drivers/mfd/Kconfig
+@@ -425,9 +425,9 @@ config LPC_SCH
+ 	  System Management Bus and General Purpose I/O.
+ 
+ config INTEL_SOC_PMIC
+-	bool "Support for Intel Atom SoC PMIC"
++	tristate "Support for Intel Atom SoC PMIC"
+ 	depends on GPIOLIB
+-	depends on I2C=y
++	depends on I2C
+ 	select MFD_CORE
+ 	select REGMAP_I2C
+ 	select REGMAP_IRQ
+@@ -448,6 +448,17 @@ config INTEL_SOC_PMIC_DC_TI
+ 	  Select this option for supporting Dollar Cove TI PMIC device that is
+ 	  found on Intel Cherrytrail SoC.
+ 
++config INTEL_SOC_PMIC_BXTWC
++	tristate "Support for Intel Broxton Whiskey Cove PMIC"
++	depends on GPIOLIB
++	depends on I2C
++	depends on INTEL_PMC_IPC
++	select MFD_CORE
++	select REGMAP_I2C
++	select REGMAP_IRQ
++	help
++	  Say Y for supporting Intel Broxton Whiskey Cove PMIC device.
++
+ config MFD_INTEL_LPSS
+ 	tristate
+ 	select COMMON_CLK
+diff --git a/drivers/mfd/Makefile b/drivers/mfd/Makefile
+index 75ce8a3fa9d4..12eabc9b53d9 100644
+--- a/drivers/mfd/Makefile
++++ b/drivers/mfd/Makefile
+@@ -207,9 +207,9 @@ obj-$(CONFIG_MFD_RT5033)	+= rt5033.o
+ obj-$(CONFIG_MFD_SKY81452)	+= sky81452.o
+ 
+ intel-soc-pmic-objs		:= intel_soc_pmic_core.o intel_soc_pmic_crc.o
+-intel-soc-pmic-$(CONFIG_INTEL_PMC_IPC)	+= intel_soc_pmic_bxtwc.o
+ obj-$(CONFIG_INTEL_SOC_PMIC)	+= intel-soc-pmic.o
+ obj-$(CONFIG_INTEL_SOC_PMIC_DC_TI) += intel-soc-pmic-dc-ti.o
++obj-$(CONFIG_INTEL_SOC_PMIC_BXTWC) += intel_soc_pmic_bxtwc.o
+ obj-$(CONFIG_MFD_MT6397)	+= mt6397-core.o
+ 
+ obj-$(CONFIG_MFD_ALTERA_A10SR)	+= altera-a10sr.o
+diff --git a/drivers/pwm/core.c b/drivers/pwm/core.c
+index a0860b30bd93..34c656b3b715 100644
+--- a/drivers/pwm/core.c
++++ b/drivers/pwm/core.c
+@@ -724,6 +724,7 @@ void pwm_add_table(struct pwm_lookup *table, size_t num)
+ 
+ 	mutex_unlock(&pwm_lookup_lock);
+ }
++EXPORT_SYMBOL_GPL(pwm_add_table);
+ 
+ /**
+  * pwm_remove_table() - unregister PWM device consumers
+@@ -741,6 +742,7 @@ void pwm_remove_table(struct pwm_lookup *table, size_t num)
+ 
+ 	mutex_unlock(&pwm_lookup_lock);
+ }
++EXPORT_SYMBOL_GPL(pwm_remove_table);
+ 
+ /**
+  * pwm_get() - look up and request a PWM device
+-- 
+2.12.1
+

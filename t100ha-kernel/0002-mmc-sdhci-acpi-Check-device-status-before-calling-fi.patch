@@ -1,0 +1,44 @@
+From a4ff1adce84b76614533005422e909caa11bde9d Mon Sep 17 00:00:00 2001
+From: Hans de Goede <hdegoede@redhat.com>
+Date: Sat, 25 Feb 2017 16:42:24 +0100
+Subject: [PATCH 02/44] mmc: sdhci-acpi: Check device status before calling
+ fix_up_power()
+
+Calling acpi_device_fix_up_power() on a device which is not present
+is not a good idea.
+
+While at it also call acpi_bus_get_status() on the children before
+the status check to make sure that child->status contains valid data.
+
+Signed-off-by: Hans de Goede <hdegoede@redhat.com>
+Signed-off-by: Takashi Iwai <tiwai@suse.de>
+---
+ drivers/mmc/host/sdhci-acpi.c | 6 +++---
+ 1 file changed, 3 insertions(+), 3 deletions(-)
+
+diff --git a/drivers/mmc/host/sdhci-acpi.c b/drivers/mmc/host/sdhci-acpi.c
+index 9dcb7048e3b1..d2da3ca00438 100644
+--- a/drivers/mmc/host/sdhci-acpi.c
++++ b/drivers/mmc/host/sdhci-acpi.c
+@@ -392,15 +392,15 @@ static int sdhci_acpi_probe(struct platform_device *pdev)
+ 	if (acpi_bus_get_device(handle, &device))
+ 		return -ENODEV;
+ 
++	if (acpi_bus_get_status(device) || !device->status.present)
++		return -ENODEV;
++
+ 	/* Power on the SDHCI controller and its children */
+ 	acpi_device_fix_up_power(device);
+ 	list_for_each_entry(child, &device->children, node)
+ 		if (child->status.present && child->status.enabled)
+ 			acpi_device_fix_up_power(child);
+ 
+-	if (acpi_bus_get_status(device) || !device->status.present)
+-		return -ENODEV;
+-
+ 	if (sdhci_acpi_byt_defer(dev))
+ 		return -EPROBE_DEFER;
+ 
+-- 
+2.12.1
+

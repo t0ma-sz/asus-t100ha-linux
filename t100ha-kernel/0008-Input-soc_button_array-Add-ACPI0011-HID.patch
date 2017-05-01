@@ -1,0 +1,29 @@
+From acdc079d994f038df1a8daad75f5277c8a401580 Mon Sep 17 00:00:00 2001
+From: Hans de Goede <hdegoede@redhat.com>
+Date: Sun, 12 Feb 2017 12:02:19 +0100
+Subject: [PATCH 08/44] Input: soc_button_array: Add ACPI0011 HID
+
+Windows 10 devices use the same interface as Windows 8, but with
+an ACPI HID of ACPI0011 instead of a CID of "PNP0C40".
+
+Signed-off-by: Hans de Goede <hdegoede@redhat.com>
+Signed-off-by: Takashi Iwai <tiwai@suse.de>
+---
+ drivers/input/misc/soc_button_array.c | 1 +
+ 1 file changed, 1 insertion(+)
+
+diff --git a/drivers/input/misc/soc_button_array.c b/drivers/input/misc/soc_button_array.c
+index ddb2f22fca7a..fbe9796bd33c 100644
+--- a/drivers/input/misc/soc_button_array.c
++++ b/drivers/input/misc/soc_button_array.c
+@@ -211,6 +211,7 @@ static struct soc_button_info soc_button_PNP0C40[] = {
+ 
+ static const struct acpi_device_id soc_button_acpi_match[] = {
+ 	{ "PNP0C40", (unsigned long)soc_button_PNP0C40 },
++	{ "ACPI0011", (unsigned long)soc_button_PNP0C40 },
+ 	{ }
+ };
+ 
+-- 
+2.12.1
+

@@ -1,0 +1,56 @@
+From 9bf82426f47354c8b435aeeb54bad7fa90a08851 Mon Sep 17 00:00:00 2001
+From: Hans de Goede <hdegoede@redhat.com>
+Date: Mon, 20 Feb 2017 20:10:50 +0100
+Subject: [PATCH 25/44] pwm: lpss: Do not set / wait_for update_bit when not
+ enabled
+
+At least on cherrytrail, the update bit will never go low when the
+enabled bit is not set.
+
+This causes the backlight on my cube iwork8 air tablet to never go on
+again after being turned off, because the enable path does:
+
+	pwm_lpss_prepare();
+	ret = pwm_lpss_update(pwm);
+	if (ret)
+		return ret;
+	pwm_lpss_write(pwm, pwm_lpss_read(pwm) | PWM_ENABLE);
+
+And the pwm_lpss_update() call fails, as the setting of the
+UPDATE bit never gets acked, because the ENABLE bit is not set.
+
+Subsequent calls then all fail because of the pwm_lpss_is_updating()
+check done by pwm_lpss_apply().
+
+This commit fixes this by setting the enable bit before calling
+pwm_lpss_update().
+
+Fixes: 10d56a4cb1c6 ("pwm: lpss: Avoid reconfiguring while UPDATE bit...")
+Cc: Ilkka Koskinen <ilkka.koskinen@intel.com>
+Signed-off-by: Hans de Goede <hdegoede@redhat.com>
+Signed-off-by: Takashi Iwai <tiwai@suse.de>
+---
+ drivers/pwm/pwm-lpss.c | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/drivers/pwm/pwm-lpss.c b/drivers/pwm/pwm-lpss.c
+index 689d2c1cbead..6c99abc0b871 100644
+--- a/drivers/pwm/pwm-lpss.c
++++ b/drivers/pwm/pwm-lpss.c
+@@ -137,12 +137,12 @@ static int pwm_lpss_apply(struct pwm_chip *chip, struct pwm_device *pwm,
+ 				return ret;
+ 			}
+ 			pwm_lpss_prepare(lpwm, pwm, state->duty_cycle, state->period);
++			pwm_lpss_write(pwm, pwm_lpss_read(pwm) | PWM_ENABLE);
+ 			ret = pwm_lpss_update(pwm);
+ 			if (ret) {
+ 				pm_runtime_put(chip->dev);
+ 				return ret;
+ 			}
+-			pwm_lpss_write(pwm, pwm_lpss_read(pwm) | PWM_ENABLE);
+ 		} else {
+ 			ret = pwm_lpss_is_updating(pwm);
+ 			if (ret)
+-- 
+2.12.1
+

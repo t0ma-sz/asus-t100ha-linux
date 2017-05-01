@@ -1,0 +1,68 @@
+From c8b6c014ce7b108735cd1de5a7e5745871524f64 Mon Sep 17 00:00:00 2001
+From: Hans de Goede <hdegoede@redhat.com>
+Date: Mon, 20 Feb 2017 20:38:18 +0100
+Subject: [PATCH 26/44] pwm: lpss: Simplify update check in pwm_lpss_apply
+
+Simple keep a pm ref over the entire function and do the update check
+once at the beginning. This simplifies the code and makes sure we also
+check the update bit when disabling the pwm.
+
+Signed-off-by: Hans de Goede <hdegoede@redhat.com>
+Signed-off-by: Takashi Iwai <tiwai@suse.de>
+---
+ drivers/pwm/pwm-lpss.c | 26 +++++++++++---------------
+ 1 file changed, 11 insertions(+), 15 deletions(-)
+
+diff --git a/drivers/pwm/pwm-lpss.c b/drivers/pwm/pwm-lpss.c
+index 6c99abc0b871..0b549dc16858 100644
+--- a/drivers/pwm/pwm-lpss.c
++++ b/drivers/pwm/pwm-lpss.c
+@@ -128,34 +128,30 @@ static int pwm_lpss_apply(struct pwm_chip *chip, struct pwm_device *pwm,
+ 	struct pwm_lpss_chip *lpwm = to_lpwm(chip);
+ 	int ret;
+ 
++	pm_runtime_get_sync(chip->dev);
++	ret = pwm_lpss_is_updating(pwm);
++	if (ret)
++		goto out;
++
+ 	if (state->enabled) {
+ 		if (!pwm_is_enabled(pwm)) {
+-			pm_runtime_get_sync(chip->dev);
+-			ret = pwm_lpss_is_updating(pwm);
+-			if (ret) {
+-				pm_runtime_put(chip->dev);
+-				return ret;
+-			}
+ 			pwm_lpss_prepare(lpwm, pwm, state->duty_cycle, state->period);
+ 			pwm_lpss_write(pwm, pwm_lpss_read(pwm) | PWM_ENABLE);
+ 			ret = pwm_lpss_update(pwm);
+-			if (ret) {
+-				pm_runtime_put(chip->dev);
+-				return ret;
+-			}
++			if (ret == 0)
++				pm_runtime_get(chip->dev);
+ 		} else {
+-			ret = pwm_lpss_is_updating(pwm);
+-			if (ret)
+-				return ret;
+ 			pwm_lpss_prepare(lpwm, pwm, state->duty_cycle, state->period);
+-			return pwm_lpss_update(pwm);
++			ret = pwm_lpss_update(pwm);
+ 		}
+ 	} else if (pwm_is_enabled(pwm)) {
+ 		pwm_lpss_write(pwm, pwm_lpss_read(pwm) & ~PWM_ENABLE);
+ 		pm_runtime_put(chip->dev);
+ 	}
+ 
+-	return 0;
++out:
++	pm_runtime_put(chip->dev);
++	return ret;
+ }
+ 
+ static const struct pwm_ops pwm_lpss_ops = {
+-- 
+2.12.1
+

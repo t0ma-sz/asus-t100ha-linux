@@ -1,0 +1,54 @@
+From 430d739075451afc9e06e7280702ff16903d1e82 Mon Sep 17 00:00:00 2001
+From: Hans de Goede <hdegoede@redhat.com>
+Date: Fri, 24 Mar 2017 11:08:47 +0100
+Subject: [PATCH 44/44] gpio: acpi: Call enable_irq_wake for _IAE GpioInts with
+ Wake set
+
+On Bay Trail / Cherry Trail systems with a LID switch, the LID switch is
+often connect to a gpioint handled by an _IAE event handler.
+Before this commit such systems would not wake up when opening the lid,
+requiring the powerbutton to be pressed after opening the lid to wakeup.
+
+Note that Bay Trail / Cherry Trail systems use suspend-to-idle, so
+the interrupts are generated anyway on those lines on lid switch changes,
+but they are treated by the IRQ subsystem as spurious while suspended if
+not marked as wakeup IRQs.
+
+This commit calls enable_irq_wake() for _IAE GpioInts with a valid
+event handler which have their Wake flag set. This fixes such systems
+not waking up when opening the lid.
+
+Signed-off-by: Hans de Goede <hdegoede@redhat.com>
+Acked-by: Mika Westerberg <mika.westerberg@linux.intel.com>
+Reviewed-by: Andy Shevchenko <andriy.shevchenko@linux.intel.com>
+---
+ drivers/gpio/gpiolib-acpi.c | 6 ++++++
+ 1 file changed, 6 insertions(+)
+
+diff --git a/drivers/gpio/gpiolib-acpi.c b/drivers/gpio/gpiolib-acpi.c
+index 9b37a3692b3f..8e318f449d23 100644
+--- a/drivers/gpio/gpiolib-acpi.c
++++ b/drivers/gpio/gpiolib-acpi.c
+@@ -266,6 +266,9 @@ static acpi_status acpi_gpiochip_request_interrupt(struct acpi_resource *ares,
+ 		goto fail_free_event;
+ 	}
+ 
++	if (agpio->wake_capable == ACPI_WAKE_CAPABLE)
++		enable_irq_wake(irq);
++
+ 	list_add_tail(&event->node, &acpi_gpio->events);
+ 	return AE_OK;
+ 
+@@ -339,6 +342,9 @@ void acpi_gpiochip_free_interrupts(struct gpio_chip *chip)
+ 	list_for_each_entry_safe_reverse(event, ep, &acpi_gpio->events, node) {
+ 		struct gpio_desc *desc;
+ 
++		if (irqd_is_wakeup_set(irq_get_irq_data(event->irq)))
++			disable_irq_wake(event->irq);
++
+ 		free_irq(event->irq, event);
+ 		desc = event->desc;
+ 		if (WARN_ON(IS_ERR(desc)))
+-- 
+2.12.1
+

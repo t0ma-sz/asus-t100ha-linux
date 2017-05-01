@@ -1,0 +1,51 @@
+From 1f0ee4058e7f3d9dbfa6dbc9179b079e5c9e177e Mon Sep 17 00:00:00 2001
+From: Jonas Aaberg <cja@gmx.net>
+Date: Sat, 25 Mar 2017 07:17:33 +0100
+Subject: [PATCH 43/44] wip
+
+Signed-off-by: Jonas Aaberg <cja@gmx.net>
+---
+ drivers/input/mouse/asustouch.c | 12 ++++++++----
+ 1 file changed, 8 insertions(+), 4 deletions(-)
+
+diff --git a/drivers/input/mouse/asustouch.c b/drivers/input/mouse/asustouch.c
+index 44afbc232934..41b8ea32fc12 100644
+--- a/drivers/input/mouse/asustouch.c
++++ b/drivers/input/mouse/asustouch.c
+@@ -242,8 +242,11 @@ static int asus_touchpad_probe(struct usb_interface *intf,
+ 	int i;
+ 
+ 	if (intf->cur_altsetting->desc.bInterfaceNumber !=
+-	    ASUS_T100_TOUCHPAD_INTERFACEID)
++	    ASUS_T100_TOUCHPAD_INTERFACEID) {
++		dev_info(&intf->dev, "interface number: 0x%x\n", 
++			 intf->cur_altsetting->desc.bInterfaceNumber);
+ 		return -ENODEV;
++	}
+ 
+ 	for (i = 0; i < intf->cur_altsetting->desc.bNumEndpoints; i++) {
+ 		endpoint = &intf->cur_altsetting->endpoint[i].desc;
+@@ -353,8 +356,8 @@ static int asus_touchpad_probe(struct usb_interface *intf,
+ 				  asus, asus->int_in_urb->transfer_dma);
+ 	usb_free_urb(asus->int_in_urb);
+ 	usb_set_intfdata(intf, NULL);
+-	if (asus->input)
+-		input_set_drvdata(asus->input, NULL);
++//	if (asus->input)
++//		input_set_drvdata(asus->input, NULL);
+ 
+ 	return error;
+ }
+@@ -369,7 +372,8 @@ static void asus_touchpad_disconnect(struct usb_interface *intf)
+ 		usb_free_coherent(asus->udev, asus->alloc_len,
+ 				  asus, asus->int_in_urb->transfer_dma);
+ 		usb_free_urb(asus->int_in_urb);
+-		input_set_drvdata(asus->input, NULL);
++//		asus->int_in_urb = NULL;
++//		input_set_drvdata(asus->input, NULL);
+ 	}
+ }
+ 
+-- 
+2.12.1
+

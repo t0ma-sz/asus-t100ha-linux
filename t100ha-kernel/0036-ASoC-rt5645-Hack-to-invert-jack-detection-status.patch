@@ -1,0 +1,40 @@
+From a11ae3785a1f0b60881287c15643000a1e088984 Mon Sep 17 00:00:00 2001
+From: Pierre-Louis Bossart <pierre-louis.bossart@linux.intel.com>
+Date: Mon, 16 Jan 2017 13:30:31 -0600
+Subject: [PATCH 36/44] ASoC: rt5645: Hack to invert jack detection status
+
+Tested on T100HA
+---
+ sound/soc/codecs/rt5645.c | 12 +++++++++++-
+ 1 file changed, 11 insertions(+), 1 deletion(-)
+
+diff --git a/sound/soc/codecs/rt5645.c b/sound/soc/codecs/rt5645.c
+index 0408086ecd09..3dba1b6b02b8 100644
+--- a/sound/soc/codecs/rt5645.c
++++ b/sound/soc/codecs/rt5645.c
+@@ -3242,11 +3242,21 @@ static void rt5645_jack_detect_work(struct work_struct *work)
+ 		val = snd_soc_read(rt5645->codec, RT5645_A_JD_CTRL1) & 0x0070;
+ 		break;
+ 	default: /* 1 port */
+-		val = snd_soc_read(rt5645->codec, RT5645_A_JD_CTRL1) & 0x0020;
++		//val = snd_soc_read(rt5645->codec, RT5645_A_JD_CTRL1) & 0x0020;
++		gpio_state = gpiod_get_value(rt5645->gpiod_hp_det);
++		printk(KERN_ERR "gpio_state = %d\n",
++		       gpio_state);
++
++		
++		val = snd_soc_read(rt5645->codec, RT5645_A_JD_CTRL1);
++		val = ~val;
++		val = val & 0x0020;
+ 		break;
+ 
+ 	}
+ 
++	printk(KERN_ERR "jack detect val %d \n", val);
++	
+ 	switch (val) {
+ 	/* jack in */
+ 	case 0x30: /* 2 port */
+-- 
+2.12.1
+

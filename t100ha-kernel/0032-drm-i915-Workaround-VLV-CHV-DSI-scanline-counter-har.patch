@@ -1,0 +1,106 @@
+From c768d8ac095bf535ce36f84a81a366c30c3bdf86 Mon Sep 17 00:00:00 2001
+From: =?UTF-8?q?Ville=20Syrj=C3=A4l=C3=A4?= <ville.syrjala@linux.intel.com>
+Date: Tue, 13 Dec 2016 22:39:41 +0200
+Subject: [PATCH 32/44] drm/i915: Workaround VLV/CHV DSI scanline counter
+ hardware fail
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+The scanline counter is bonkers on VLV/CHV DSI. The scanline counter
+increment is not lined up with the start of vblank like it is on
+every other platform and output type. This causes problems for
+both the vblank timestamping and atomic update vblank evasion.
+
+On my FFRD8 machine at least, the scanline counter increment
+happens about 1/3 of a scanline ahead of the start of vblank (which
+is where all register latching happens still). That means we can't
+trust the scanline counter to tell us whether we're in vblank or not
+while we're on that particular line. In order to keep vblank
+timestamping in working condition when called from the vblank irq,
+we'll leave scanline_offset at one, which means that the entire
+line containing the start of vblank is considered to be inside
+the vblank.
+
+For the vblank evasion we'll need to consider that entire line
+to be bad, since we can't tell whether the registers already
+got latched or not. And we can't actually use the start of vblank
+interrupt to get us past that line as the interrupt might have
+already fired when we query the scanline counter, and then we'd
+end up waiting for the next start of vblank instead. One way
+around that would using the frame start interrupt instead since
+that wouldn't fire until the next scanline, but that would
+require some bigger changes in the interrupt code. So for simplicity
+we'll just poll until we get past the bad line.
+
+Signed-off-by: Ville Syrjälä <ville.syrjala@linux.intel.com>
+---
+ drivers/gpu/drm/i915/intel_display.c |  7 +++++++
+ drivers/gpu/drm/i915/intel_sprite.c  | 22 ++++++++++++++++++++++
+ 2 files changed, 29 insertions(+)
+
+diff --git a/drivers/gpu/drm/i915/intel_display.c b/drivers/gpu/drm/i915/intel_display.c
+index 3282b0f4b134..f2190774f91a 100644
+--- a/drivers/gpu/drm/i915/intel_display.c
++++ b/drivers/gpu/drm/i915/intel_display.c
+@@ -13808,6 +13808,13 @@ static void update_scanline_offset(struct intel_crtc *crtc)
+ 	 * type. For DP ports it behaves like most other platforms, but on HDMI
+ 	 * there's an extra 1 line difference. So we need to add two instead of
+ 	 * one to the value.
++	 *
++	 * On VLV/CHV DSI the scanline counter would appear to increment
++	 * approx. 1/3 of a scanline before start of vblank. Unfortunately
++	 * that we can't tell whether we're in vblank or not while we're
++	 * on that particular line. We must set scanline_offset to 1 so
++	 * that the vblank timestamps come out correct when we query
++	 * the scanline counter from the vblank interrupt handler.
+ 	 */
+ 	if (IS_GEN2(dev_priv)) {
+ 		const struct drm_display_mode *adjusted_mode = &crtc->config->base.adjusted_mode;
+diff --git a/drivers/gpu/drm/i915/intel_sprite.c b/drivers/gpu/drm/i915/intel_sprite.c
+index 9481ca9a3ae7..14d8b5df8cf0 100644
+--- a/drivers/gpu/drm/i915/intel_sprite.c
++++ b/drivers/gpu/drm/i915/intel_sprite.c
+@@ -81,10 +81,13 @@ int intel_usecs_to_scanlines(const struct drm_display_mode *adjusted_mode,
+  */
+ void intel_pipe_update_start(struct intel_crtc *crtc)
+ {
++	struct drm_i915_private *dev_priv = to_i915(crtc->base.dev);
+ 	const struct drm_display_mode *adjusted_mode = &crtc->config->base.adjusted_mode;
+ 	long timeout = msecs_to_jiffies_timeout(1);
+ 	int scanline, min, max, vblank_start;
+ 	wait_queue_head_t *wq = drm_crtc_vblank_waitqueue(&crtc->base);
++	bool need_vlv_dsi_wa = (IS_VALLEYVIEW(dev_priv) || IS_CHERRYVIEW(dev_priv)) &&
++		intel_crtc_has_type(crtc->config, INTEL_OUTPUT_DSI);
+ 	DEFINE_WAIT(wait);
+ 
+ 	vblank_start = adjusted_mode->crtc_vblank_start;
+@@ -136,6 +139,25 @@ void intel_pipe_update_start(struct intel_crtc *crtc)
+ 
+ 	drm_crtc_vblank_put(&crtc->base);
+ 
++	/*
++	 * On VLV/CHV DSI the scanline counter would appear to
++	 * increment approx. 1/3 of a scanline before start of vblank.
++	 * The registers still get latched at start of vblank however.
++	 * This means we must not write any registers on the first
++	 * line of vblank (since not the whole line is actually in
++	 * vblank). And unfortunately we can't use the interrupt to
++	 * wait here since it may have already fired before we check
++	 * the scanline. We could use the frame start interrupt instead
++	 * since it will fire after the critical scanline, but that would
++	 * require more changes in the interrupt code. So for now we'll
++	 * just do the nasty thing and poll for the bad scanline to
++	 * pass us by.
++	 *
++	 * FIXME figure out if BXT+ DSI suffers from this as well
++	 */
++	while (need_vlv_dsi_wa && scanline == vblank_start)
++		scanline = intel_get_crtc_scanline(crtc);
++
+ 	crtc->debug.scanline_start = scanline;
+ 	crtc->debug.start_vbl_time = ktime_get();
+ 	crtc->debug.start_vbl_count = intel_crtc_get_vblank_counter(crtc);
+-- 
+2.12.1
+

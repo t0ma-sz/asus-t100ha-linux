@@ -1,0 +1,197 @@
+From 7fa29c51bb66d82e82c0a4618f4e26a6be8f2fe0 Mon Sep 17 00:00:00 2001
+From: Takashi Iwai <tiwai@suse.de>
+Date: Thu, 23 Feb 2017 11:02:36 +0100
+Subject: [PATCH 04/44] platform: x86: Add cherrytrail vgpio driver
+
+This adds a pretty ad hic driver for working around the spurious IRQ#9
+after resume on ASUS E200H and Dell Wyse 3040.  This seems to be a
+result of virtual GPIO on ACPI INT0002.  But the device has no proper
+_STA entry set, the virtual GPIO driver (out-of-tree code) can't be
+bound.  Thus we need a workaround with the fixed IRQ number.
+
+Kill me please!
+
+Signed-off-by: Takashi Iwai <tiwai@suse.de>
+---
+ drivers/platform/x86/Kconfig     |   5 ++
+ drivers/platform/x86/Makefile    |   1 +
+ drivers/platform/x86/cht-vgpio.c | 142 +++++++++++++++++++++++++++++++++++++++
+ 3 files changed, 148 insertions(+)
+ create mode 100644 drivers/platform/x86/cht-vgpio.c
+
+diff --git a/drivers/platform/x86/Kconfig b/drivers/platform/x86/Kconfig
+index 4bc88eb52712..46a868e7432f 100644
+--- a/drivers/platform/x86/Kconfig
++++ b/drivers/platform/x86/Kconfig
+@@ -1088,6 +1088,11 @@ config SILEAD_DMI
+ 	  with the OS-image for the device. This option supplies the missing
+ 	  information. Enable this for x86 tablets with Silead touchscreens.
+ 
++config CHT_VGPIO
++	tristate "Virtual GPIO IRQ driver for Cherrytrail"
++	---help---
++	  This is a hack, and should die.
++
+ endif # X86_PLATFORM_DEVICES
+ 
+ config PMC_ATOM
+diff --git a/drivers/platform/x86/Makefile b/drivers/platform/x86/Makefile
+index 299d0f9e40f7..04e590ab723b 100644
+--- a/drivers/platform/x86/Makefile
++++ b/drivers/platform/x86/Makefile
+@@ -78,3 +78,4 @@ obj-$(CONFIG_PMC_ATOM)		+= pmc_atom.o
+ obj-$(CONFIG_MLX_PLATFORM)	+= mlx-platform.o
+ obj-$(CONFIG_MLX_CPLD_PLATFORM)	+= mlxcpld-hotplug.o
+ obj-$(CONFIG_INTEL_TURBO_MAX_3) += intel_turbo_max_3.o
++obj-$(CONFIG_CHT_VGPIO)		+= cht-vgpio.o
+diff --git a/drivers/platform/x86/cht-vgpio.c b/drivers/platform/x86/cht-vgpio.c
+new file mode 100644
+index 000000000000..c0e4b187dbe1
+--- /dev/null
++++ b/drivers/platform/x86/cht-vgpio.c
+@@ -0,0 +1,142 @@
++/*
++ * virtual GPIO IRQ#9 workaround for whacky Cherrytrail devices
++ */
++
++#include <linux/module.h>
++#include <linux/init.h>
++#include <linux/interrupt.h>
++#include <linux/platform_device.h>
++#include <linux/dmi.h>
++
++#define CHT_VGPIO_DRIVER_NAME		"cht-vgpio"
++#define CHT_VGPIO_IRQ			9
++
++#define GPE0A_PME_STS_BIT               0x2000
++#define GPE0A_PME_EN_BIT                0x2000
++#define GPE0A_STS_PORT			0x420
++#define GPE0A_EN_PORT			0x428
++
++struct cht_vgpio_data {
++	struct work_struct work;
++	struct mutex lock;
++};
++
++static irqreturn_t cht_vgpio_irq_handler(int irq, void *data)
++{
++	struct cht_vgpio_data *gd = data;
++
++	schedule_work(&gd->work);
++	return IRQ_HANDLED;
++}
++
++static void cht_vgpio_work(struct work_struct *work)
++{
++	struct cht_vgpio_data *gd =
++		container_of(work, struct cht_vgpio_data, work);
++	u32 gpe_sts_reg;
++	u32 gpe_en_reg;
++
++	mutex_lock(&gd->lock);
++	gpe_sts_reg = inl(GPE0A_STS_PORT);
++	gpe_en_reg = inl(GPE0A_EN_PORT);
++	/* Clear the STS Bit */
++	if (gpe_en_reg & GPE0A_PME_EN_BIT)
++		outl(gpe_en_reg & ~GPE0A_PME_EN_BIT, GPE0A_EN_PORT);
++	if (gpe_sts_reg & GPE0A_PME_STS_BIT)
++		outl(GPE0A_PME_STS_BIT, GPE0A_STS_PORT);
++	if (gpe_en_reg & GPE0A_PME_EN_BIT)
++		outl(gpe_en_reg, GPE0A_EN_PORT);
++	mutex_unlock(&gd->lock);
++}
++
++static int cht_vgpio_probe(struct platform_device *pdev)
++{
++	struct device *dev = &pdev->dev;
++	struct cht_vgpio_data *gd;
++	int err;
++
++	gd = devm_kzalloc(dev, sizeof(*gd), GFP_KERNEL);
++	if (!gd)
++		return -ENOMEM;
++
++	mutex_init(&gd->lock);
++	INIT_WORK(&gd->work, cht_vgpio_work);
++	platform_set_drvdata(pdev, gd);
++
++	dev_info(dev, "Assigning IRQ %d\n", CHT_VGPIO_IRQ);
++	err = devm_request_irq(dev, CHT_VGPIO_IRQ, cht_vgpio_irq_handler,
++			       IRQF_SHARED, CHT_VGPIO_DRIVER_NAME, gd);
++	if (err)
++		return err;
++
++	outl(inl(GPE0A_EN_PORT) | GPE0A_PME_EN_BIT, GPE0A_EN_PORT);
++	return 0;
++}
++
++static int cht_vgpio_remove(struct platform_device *pdev)
++{
++	struct cht_vgpio_data *gd = platform_get_drvdata(pdev);
++
++	cancel_work_sync(&gd->work);
++	outl(inl(GPE0A_EN_PORT) & ~GPE0A_PME_EN_BIT, GPE0A_EN_PORT);
++	return 0;
++}
++
++static struct platform_driver cht_vgpio_driver = {
++	.driver = {
++		.name = CHT_VGPIO_DRIVER_NAME,
++	},
++	.probe	= cht_vgpio_probe,
++	.remove	= cht_vgpio_remove,
++};
++
++static struct dmi_system_id cht_vgpio_dmi_table[] __initdata = {
++	{
++		.ident = "Dell Wyse 3040",
++		.matches = {
++			DMI_MATCH(DMI_SYS_VENDOR, "Dell Inc."),
++			DMI_MATCH(DMI_PRODUCT_NAME, "Wyse 3040"),
++		},
++	},
++	{
++		.ident = "ASUS E200HA",
++		.matches = {
++			DMI_MATCH(DMI_SYS_VENDOR, "ASUSTeK COMPUTER INC."),
++			DMI_MATCH(DMI_PRODUCT_NAME, "E200HA"),
++		},
++	},
++	{}
++};
++MODULE_DEVICE_TABLE(dmi, cht_vgpio_dmi_table);
++
++static struct platform_device *cht_dev;
++
++static int __init cht_vgpio_driver_init(void)
++{
++	int err;
++
++	if (!dmi_check_system(cht_vgpio_dmi_table))
++		return -ENODEV;
++	err = platform_driver_register(&cht_vgpio_driver);
++	if (err < 0)
++		return err;
++	cht_dev = platform_device_register_simple(CHT_VGPIO_DRIVER_NAME,
++						   0, NULL, 0);
++	if (IS_ERR(cht_dev)) {
++		platform_driver_unregister(&cht_vgpio_driver);
++		return PTR_ERR(cht_dev);
++	}
++
++	return 0;
++}
++
++static void __exit cht_vgpio_driver_exit(void)
++{
++	platform_device_unregister(cht_dev);
++	platform_driver_unregister(&cht_vgpio_driver);
++}
++
++module_init(cht_vgpio_driver_init);
++module_exit(cht_vgpio_driver_exit);
++
++MODULE_LICENSE("GPL v2");
+-- 
+2.12.1
+
