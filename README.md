@@ -17,7 +17,7 @@ Reboot notebook, while booting press `F2`. Go to boot menu and disable secure bo
 
 ## 3.Install Manjaro
 
-On boot menu press 'e' key and add kernel parameter `fbcon=rogate:3` (it's not mandatory but I recommend to do this, on other case you will have portrait mode).
+On boot menu press 'e' key and add kernel parameter `fbcon=rotate:3` (it's not mandatory but I recommend to do this, on other case you will have portrait mode).
 Install Manjaro, choose 'erase disk' option.
 
 
@@ -103,7 +103,7 @@ cd t100ha-kernel
 makepkg -s --skipinteg
 ```
 Then after compiling
-'makepkg -i'
+`makepkg -i`
 
 
 ## 8. Reboot and choose t100ha-kernel on grub. Login and launch GUI by `startx` command.
